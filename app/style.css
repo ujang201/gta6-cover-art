@@ -1,0 +1,152 @@
+/* Neon Bay — editor styling. Dark stage, neon accents, original design. */
+@font-face {
+  font-family: 'Anton';
+  src: url('fonts/Anton-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --bg: #0d0916;
+  --panel: #171226;
+  --line: #2c2344;
+  --text: #f2eefb;
+  --muted: #a99ec4;
+  --accent: #ff7a3d;
+  --accent2: #00d8ff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  padding: 18px 24px 10px;
+  flex-wrap: wrap;
+}
+
+.top h1 {
+  margin: 0;
+  font-family: 'Anton', 'Arial Narrow', sans-serif;
+  font-size: 42px;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  background: linear-gradient(90deg, #ffb347, #ff5e7a 55%, #00d8ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.tag { margin: 4px 0 0; color: var(--muted); }
+.hint { margin: 0; color: var(--muted); font-size: 13px; }
+
+.editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  padding: 10px 24px 24px;
+  align-items: start;
+}
+
+.stage { min-width: 0; }
+#poster {
+  display: block;
+  width: 100%;
+  max-width: 960px;
+  height: auto;
+  background: #120e1e;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: grab;
+  touch-action: none;
+}
+#poster:active { cursor: grabbing; }
+.panel-line { color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
+.panel-line input[type="range"] { flex: 1; }
+
+.controls section {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.controls h2 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+button {
+  background: #241b3a;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent2); }
+button.active { background: var(--accent); border-color: var(--accent); color: #1a0e06; font-weight: 700; }
+button.primary {
+  width: 100%;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1a0e06;
+  font-weight: 800;
+  margin-top: 8px;
+}
+
+.file-btn {
+  display: inline-block;
+  background: #241b3a;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+.file-btn:hover { border-color: var(--accent2); }
+
+input[type="text"], select {
+  width: 100%;
+  background: #0f0a1c;
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+  margin-bottom: 8px;
+}
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+input[type="color"] { vertical-align: middle; margin-left: 8px; }
+label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
+label.check { display: flex; gap: 8px; align-items: center; color: var(--text); }
+.note { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
+.foot { padding: 0 24px 20px; color: var(--muted); font-size: 12px; }
+
+/* Cover-only boot (?shot=cover): hide the editor, show the poster alone. */
+body.cover-only .top,
+body.cover-only .controls,
+body.cover-only .panel-line,
+body.cover-only .foot { display: none; }
+body.cover-only .editor { display: block; padding: 0; }
+body.cover-only #poster { max-width: none; border: 0; border-radius: 0; }
+
+@media (max-width: 900px) {
+  .editor { grid-template-columns: 1fr; }
+  .top h1 { font-size: 32px; }
+}

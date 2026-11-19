@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neon Bay — GTA-style cover art maker</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23ff7a3d'/%3E%3Ctext x='16' y='23' font-size='18' font-family='Arial Black' font-weight='900' text-anchor='middle' fill='%23120e1e'%3EN%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div>
+    <h1>NEON BAY</h1>
+    <p class="tag">Turn your photos into GTA-style cover art — offline, in your browser.</p>
+  </div>
+  <p class="hint">Click a panel to select it · drag to pan its photo · export a PNG to share</p>
+</header>
+
+<main class="editor">
+  <section class="stage">
+    <canvas id="poster" width="960" height="640" aria-label="Cover preview"></canvas>
+    <p class="panel-line"><span id="panel-label">Panel 1 of 3</span> · zoom
+      <input id="zoom" type="range" min="1" max="3" step="0.05" value="1">
+      <span id="zoom-val">1.00×</span>
+    </p>
+  </section>
+
+  <aside class="controls">
+    <section>
+      <h2>Photos</h2>
+      <label class="file-btn">Choose your photos…
+        <input id="photos" type="file" accept="image/*" multiple hidden>
+      </label>
+      <div class="row">
+        <button type="button" data-sample="boulevard">Sample: Boulevard</button>
+        <button type="button" data-sample="pier">Sample: Pier</button>
+        <button type="button" id="fill-all">Fill all panels</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Layout</h2>
+      <div class="row" id="layouts">
+        <button type="button" data-layout="hero" class="active">Hero split</button>
+        <button type="button" data-layout="trio">Comic trio</button>
+        <button type="button" data-layout="grid">Four grid</button>
+        <button type="button" data-layout="solo">Solo</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Caption</h2>
+      <input id="caption" type="text" value="NEON BAY" maxlength="48" aria-label="Caption text">
+      <div class="row" id="caption-presets"></div>
+      <label>Size <span id="cap-size-val">12%</span>
+        <input id="cap-size" type="range" min="0.06" max="0.2" step="0.005" value="0.115">
+      </label>
+      <label>Colour <input id="cap-color" type="color" value="#ffffff"></label>
+      <label>Placement
+        <select id="cap-place">
+          <option value="bottom" selected>Bottom</option>
+          <option value="top">Top</option>
+        </select>
+      </label>
+      <label>Tilt <span id="cap-tilt-val">-2°</span>
+        <input id="cap-tilt" type="range" min="-8" max="8" step="1" value="-2">
+      </label>
+      <label class="check"><input id="cap-bar" type="checkbox" checked> Dark bar behind caption</label>
+    </section>
+
+    <section>
+      <h2>Colour grade</h2>
+      <div class="row" id="grades">
+        <button type="button" data-grade="sunset" class="active">Sunset</button>
+        <button type="button" data-grade="neon">Neon night</button>
+        <button type="button" data-grade="noir">Palm noir</button>
+        <button type="button" data-grade="none">No grade</button>
+      </div>
+      <label class="check"><input id="fx-grain" type="checkbox" checked> Film grain</label>
+      <label class="check"><input id="fx-halftone" type="checkbox"> Halftone dots</label>
+      <label class="check"><input id="fx-vignette" type="checkbox" checked> Vignette</label>
+    </section>
+
+    <section>
+      <h2>Export PNG</h2>
+      <div class="row">
+        <button type="button" data-export="square">1080 × 1080</button>
+        <button type="button" data-export="portrait">1080 × 1350</button>
+        <button type="button" data-export="wide">1920 × 1080</button>
+      </div>
+      <button type="button" id="export-all" class="primary">Export all three sizes</button>
+      <p class="note">Your photos never leave this machine — everything runs locally.</p>
+    </section>
+  </aside>
+</main>
+
+<footer class="foot">Neon Bay — an original cover art maker. Not affiliated with Rockstar Games.</footer>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
