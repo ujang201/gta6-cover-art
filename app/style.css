@@ -1,4 +1,4 @@
-/* Neon Bay — editor styling. Dark stage, neon accents, original design. */
+/* Neon Bay — editor styling. Dark UI, neon accents, no external assets. */
 @font-face {
   font-family: 'Anton';
   src: url('fonts/Anton-Regular.ttf') format('truetype');
@@ -7,146 +7,118 @@
   font-display: swap;
 }
 
-:root {
-  --bg: #0d0916;
-  --panel: #171226;
-  --line: #2c2344;
-  --text: #f2eefb;
-  --muted: #a99ec4;
-  --accent: #ff7a3d;
-  --accent2: #00d8ff;
-}
-
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font: 15px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: #0b0b10;
+  color: #f2f2f5;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
-.top {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
-  padding: 18px 24px 10px;
-  flex-wrap: wrap;
-}
-
-.top h1 {
+.topbar { padding: 18px 22px 8px; border-bottom: 1px solid #26262e; }
+.topbar h1 {
   margin: 0;
-  font-family: 'Anton', 'Arial Narrow', sans-serif;
-  font-size: 42px;
+  font-family: Anton, 'Arial Narrow', sans-serif;
+  font-size: 34px;
   letter-spacing: 0.06em;
-  line-height: 1;
-  background: linear-gradient(90deg, #ffb347, #ff5e7a 55%, #00d8ff);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: #ffd60a;
+  text-shadow: 0 0 18px rgba(255, 46, 99, 0.55);
 }
-
-.tag { margin: 4px 0 0; color: var(--muted); }
-.hint { margin: 0; color: var(--muted); font-size: 13px; }
+.tagline { margin: 2px 0 0; color: #b9b9c4; max-width: 720px; }
 
 .editor {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
   gap: 20px;
-  padding: 10px 24px 24px;
+  padding: 18px 22px 26px;
   align-items: start;
 }
 
-.stage { min-width: 0; }
-#poster {
+.preview-pane { min-width: 0; }
+#preview {
   display: block;
   width: 100%;
-  max-width: 960px;
   height: auto;
-  background: #120e1e;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  cursor: grab;
+  border: 1px solid #33333d;
+  border-radius: 6px;
+  background: #000;
   touch-action: none;
+  cursor: grab;
 }
-#poster:active { cursor: grabbing; }
-.panel-line { color: var(--muted); font-size: 13px; display: flex; gap: 8px; align-items: center; }
-.panel-line input[type="range"] { flex: 1; }
+#preview:active { cursor: grabbing; }
+.hint { color: #9a9aa6; font-size: 12.5px; margin: 8px 0 0; }
 
-.controls section {
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 14px;
-  margin-bottom: 12px;
+.controls { display: flex; flex-direction: column; gap: 14px; }
+.group {
+  background: #14141a;
+  border: 1px solid #26262e;
+  border-radius: 8px;
+  padding: 12px 14px;
 }
-.controls h2 {
-  margin: 0 0 10px;
-  font-size: 12px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.group h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: #ffd60a; }
+
+.row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.row:last-child { margin-bottom: 0; }
 
 button {
-  background: #241b3a;
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 12px;
+  background: #22222b;
+  color: #f2f2f5;
+  border: 1px solid #3a3a45;
+  border-radius: 6px;
+  padding: 7px 11px;
   font: inherit;
   cursor: pointer;
 }
-button:hover { border-color: var(--accent2); }
-button.active { background: var(--accent); border-color: var(--accent); color: #1a0e06; font-weight: 700; }
+button:hover { border-color: #ffd60a; }
+button.active { background: #ffd60a; color: #111; border-color: #ffd60a; font-weight: 700; }
 button.primary {
   width: 100%;
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #1a0e06;
-  font-weight: 800;
-  margin-top: 8px;
+  background: #ff2e63;
+  border-color: #ff2e63;
+  font-weight: 700;
+  padding: 10px;
 }
+button.primary:hover { background: #ff4d7a; }
 
-.file-btn {
+.thumbs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.thumb { min-width: 76px; }
+.thumb.fill { border-style: dashed; }
+
+.upload {
   display: inline-block;
-  background: #241b3a;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 12px;
+  background: #22222b;
+  border: 1px dashed #3a3a45;
+  border-radius: 6px;
+  padding: 7px 11px;
   cursor: pointer;
-  margin-bottom: 8px;
 }
-.file-btn:hover { border-color: var(--accent2); }
+.upload:hover { border-color: #ffd60a; }
 
-input[type="text"], select {
+input[type="text"] {
   width: 100%;
-  background: #0f0a1c;
-  color: var(--text);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  background: #0b0b10;
+  color: #f2f2f5;
+  border: 1px solid #3a3a45;
+  border-radius: 6px;
   padding: 8px 10px;
   font: inherit;
   margin-bottom: 8px;
 }
-input[type="range"] { width: 100%; accent-color: var(--accent); }
-input[type="color"] { vertical-align: middle; margin-left: 8px; }
-label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
-label.check { display: flex; gap: 8px; align-items: center; color: var(--text); }
-.note { color: var(--muted); font-size: 12px; margin: 10px 0 0; }
-.foot { padding: 0 24px 20px; color: var(--muted); font-size: 12px; }
 
-/* Cover-only boot (?shot=cover): hide the editor, show the poster alone. */
-body.cover-only .top,
-body.cover-only .controls,
-body.cover-only .panel-line,
-body.cover-only .foot { display: none; }
-body.cover-only .editor { display: block; padding: 0; }
-body.cover-only #poster { max-width: none; border: 0; border-radius: 0; }
+.colors button { width: 30px; height: 30px; padding: 0; border-radius: 50%; }
+.colors button.active { outline: 2px solid #fff; outline-offset: 2px; }
 
-@media (max-width: 900px) {
-  .editor { grid-template-columns: 1fr; }
-  .top h1 { font-size: 32px; }
-}
+.slider-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.slider-row label { min-width: 34px; color: #b9b9c4; }
+.slider-row input[type="range"] { flex: 1; accent-color: #ffd60a; }
+.slider-row span { min-width: 42px; text-align: right; color: #b9b9c4; }
+
+/* Cover view: full-viewport poster, used by ?shot=cover. */
+body.cover-mode .topbar,
+body.cover-mode .editor { display: none; }
+body.cover-mode { background: #000; }
+.cover-canvas { display: block; }
+body.cover-mode .cover-canvas { display: block; }
