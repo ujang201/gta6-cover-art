@@ -1,215 +1,213 @@
-// Neon Bay — poster renderer. Draws the multi-panel cover onto any 2D
-// canvas at any size: panels with per-panel pan/zoom, colour grade
-// overlays, bold caption lettering and the grain / halftone / vignette
-// effects. Pure drawing code — no DOM, no network, no side effects.
+// Neon Bay — poster engine. Draws the multi-panel cover art onto any canvas,
+// at any size, from one state object. Pure canvas 2D, no dependencies.
+// A state is: { layout, size, panels: [{ photo, panX, panY, zoom }],
+//   caption: { text, size, color, place, tilt, bar },
+//   grade, effects: { grain, halftone, vignette } }.
+// A photo is { img, w, h } — an Image already loaded (sample or user file).
 
-import { LAYOUTS, GRADES } from './presets.js';
+export const SIZES = {
+  square: { id: 'square', label: 'Square 1080 × 1080', w: 1080, h: 1080 },
+  portrait: { id: 'portrait', label: 'Portrait 1080 × 1350', w: 1080, h: 1350 },
+  wide: { id: 'wide', label: 'Wide 1920 × 1080', w: 1920, h: 1080 },
+};
 
-const GAP_FRAC = 0.012; // panel gap as a fraction of poster width
-const FRAME_FRAC = 0.02; // outer frame as a fraction of poster width
+export const LAYOUTS = {
+  hero: { id: 'hero', label: 'Hero split', hint: 'One big panel, two small' },
+  trio: { id: 'trio', label: 'Comic trio', hint: 'Three tall panels' },
+  grid: { id: 'grid', label: 'Four grid', hint: 'Two by two' },
+  solo: { id: 'solo', label: 'Solo', hint: 'One full-bleed photo' },
+};
 
-// Pixel rects for a layout, with gaps and an outer frame.
-export function layoutRects(layoutId, W, H) {
-  const layout = LAYOUTS[layoutId] ?? LAYOUTS.hero;
-  const frame = Math.round(W * FRAME_FRAC);
-  const gap = Math.round(W * GAP_FRAC);
-  const innerW = W - frame * 2;
-  const innerH = H - frame * 2;
-  return layout.panels.map((p) => {
-    const x = frame + p.x * innerW + (p.x > 0 ? gap / 2 : 0);
-    const y = frame + p.y * innerH + (p.y > 0 ? gap / 2 : 0);
-    const w = p.w * innerW - (p.x > 0 ? gap / 2 : 0) - (p.x + p.w < 1 ? gap / 2 : 0);
-    const h = p.h * innerH - (p.y > 0 ? gap / 2 : 0) - (p.y + p.h < 1 ? gap / 2 : 0);
-    return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
-  });
-}
+export const GRADES = {
+  sunset: {
+    id: 'sunset', label: 'Sunset',
+    filter: 'saturate(1.4) contrast(1.08) sepia(0.28) hue-rotate(-14deg)',
+    wash: [['#ff9a3c', 0.16], ['#ff2e63', 0.2]],
+  },
+  neon: {
+    id: 'neon', label: 'Neon night',
+    filter: 'saturate(1.7) contrast(1.15) hue-rotate(24deg) brightness(0.96)',
+    wash: [['#00e5ff', 0.1], ['#ff2fb3', 0.2]],
+  },
+  noir: {
+    id: 'noir', label: 'Palm noir',
+    filter: 'grayscale(1) contrast(1.3) brightness(0.9)',
+    wash: [['#0a2e1f', 0.14], ['#000000', 0.1]],
+  },
+  none: { id: 'none', label: 'No grade', filter: 'none', wash: [] },
+};
 
-// Cover-fit draw of one photo into a rect, with pan (pixels) and zoom.
-function drawPhoto(ctx, img, rect, panX, panY, zoom) {
-  if (!img || !img.naturalWidth) return false;
-  const base = Math.max(rect.w / img.naturalWidth, rect.h / img.naturalHeight) * zoom;
-  const dw = img.naturalWidth * base;
-  const dh = img.naturalHeight * base;
-  // Clamp the pan so the photo always covers the panel.
-  const maxX = Math.max(0, (dw - rect.w) / 2);
-  const maxY = Math.max(0, (dh - rect.h) / 2);
-  const ox = Math.max(-maxX, Math.min(maxX, panX));
-  const oy = Math.max(-maxY, Math.min(maxY, panY));
-  ctx.drawImage(img, rect.x + (rect.w - dw) / 2 + ox, rect.y + (rect.h - dh) / 2 + oy, dw, dh);
-  return true;
-}
+export const CAPTION_COLORS = ['#ffffff', '#ffd60a', '#ff5da2', '#37e6ff', '#ff6b35'];
 
-function emptyPanel(ctx, rect, label) {
-  const g = ctx.createLinearGradient(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
-  g.addColorStop(0, '#241b3a');
-  g.addColorStop(1, '#120e1e');
-  ctx.fillStyle = g;
-  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-  ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-  ctx.lineWidth = Math.max(1, rect.w * 0.004);
-  ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.55)';
-  ctx.font = `600 ${Math.round(rect.w * 0.045)}px system-ui, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, rect.x + rect.w / 2, rect.y + rect.h / 2);
-}
-
-function applyGrade(ctx, W, H, gradeId) {
-  const grade = GRADES[gradeId] ?? GRADES.none;
-  for (const o of grade.overlays) {
-    const x0 = o.from[0] * W, y0 = o.from[1] * H;
-    const x1 = o.to[0] * W, y1 = o.to[1] * H;
-    const g = ctx.createLinearGradient(x0, y0, x1, y1);
-    for (const [stop, color] of o.stops) g.addColorStop(stop, color);
-    ctx.save();
-    ctx.globalCompositeOperation = o.blend;
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
+// Panel rects (pixels) for a layout inside w x h, with a gutter between panels.
+export function layoutRects(layout, w, h) {
+  const g = Math.max(4, Math.round(Math.min(w, h) * 0.012)); // gutter
+  const full = [{ x: 0, y: 0, w, h }];
+  if (layout === 'solo') return full;
+  if (layout === 'hero') {
+    const leftW = Math.round(w * 0.62) - g;
+    const rightX = Math.round(w * 0.62) + g;
+    const rightW = w - rightX;
+    const topH = Math.round(h / 2) - g;
+    return [
+      { x: 0, y: 0, w: leftW, h },
+      { x: rightX, y: 0, w: rightW, h: topH },
+      { x: rightX, y: topH + 2 * g, w: rightW, h: h - topH - 2 * g },
+    ];
   }
-  return grade.photoFilter;
+  if (layout === 'trio') {
+    const pw = Math.round((w - 2 * g) / 3);
+    return [0, 1, 2].map((i) => ({ x: i * (pw + g), y: 0, w: pw, h }));
+  }
+  // grid
+  const cw = Math.round((w - g) / 2);
+  const ch = Math.round((h - g) / 2);
+  return [
+    { x: 0, y: 0, w: cw, h: ch },
+    { x: cw + g, y: 0, w: cw, h: ch },
+    { x: 0, y: ch + g, w: cw, h: ch },
+    { x: cw + g, y: ch + g, w: cw, h: ch },
+  ];
 }
 
-// Film grain: a small noise tile, drawn tiled at low alpha.
-let noiseTile = null;
-function grainTile() {
-  if (noiseTile) return noiseTile;
-  const t = document.createElement('canvas');
-  t.width = 128;
-  t.height = 128;
-  const c = t.getContext('2d');
-  const data = c.createImageData(128, 128);
-  for (let i = 0; i < data.data.length; i += 4) {
-    const v = 100 + Math.floor(Math.random() * 110);
-    data.data[i] = v;
-    data.data[i + 1] = v;
-    data.data[i + 2] = v;
-    data.data[i + 3] = 255;
-  }
-  c.putImageData(data, 0, 0);
-  noiseTile = t;
-  return t;
+export function panelCount(layout) {
+  return layoutRects(layout, 100, 100).length;
 }
 
-function applyEffects(ctx, W, H, effects) {
-  if (effects.halftone) {
-    ctx.save();
-    ctx.globalAlpha = 0.1;
-    ctx.fillStyle = '#000000';
-    const step = Math.max(6, Math.round(W * 0.012));
-    for (let y = step / 2; y < H; y += step) {
-      for (let x = step / 2; x < W; x += step) {
-        ctx.beginPath();
-        ctx.arc(x, y, Math.max(0.6, step * 0.14), 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    ctx.restore();
-  }
-  if (effects.grain) {
-    const tile = grainTile();
-    const pattern = ctx.createPattern(tile, 'repeat');
-    ctx.save();
-    ctx.globalAlpha = 0.07;
-    ctx.fillStyle = pattern;
-    ctx.fillRect(0, 0, W, H);
-    ctx.restore();
-  }
-  if (effects.vignette) {
-    const r = Math.hypot(W, H) / 2;
-    const g = ctx.createRadialGradient(W / 2, H / 2, r * 0.45, W / 2, H / 2, r);
-    g.addColorStop(0, 'rgba(0,0,0,0)');
-    g.addColorStop(1, 'rgba(0,0,0,0.42)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  }
+// Deterministic PRNG so the grain looks the same on every render.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-// Wrap caption text to lines that fit maxWidth at the given font.
-function wrapCaption(ctx, text, maxWidth) {
-  const words = text.toUpperCase().split(/\s+/).filter(Boolean);
-  const lines = [];
-  let line = '';
-  for (const word of words) {
-    const trial = line ? line + ' ' + word : word;
-    if (ctx.measureText(trial).width <= maxWidth || !line) line = trial;
-    else {
-      lines.push(line);
-      line = word;
-    }
-  }
-  if (line) lines.push(line);
-  return lines.length ? lines : [''];
-}
-
-function drawCaption(ctx, W, H, caption) {
-  const text = (caption.text || '').trim();
-  if (!text) return;
-  const fontPx = Math.round(W * caption.size);
+function drawPhoto(ctx, photo, rect, grade) {
+  const { img, w: iw, h: ih } = photo;
+  const z = photo.zoom || 1;
+  const scale = Math.max(rect.w / iw, rect.h / ih) * z;
+  const dw = iw * scale;
+  const dh = ih * scale;
+  const ox = (dw - rect.w) / 2;
+  const oy = (dh - rect.h) / 2;
+  const dx = rect.x + (rect.w - dw) / 2 + (photo.panX || 0) * ox;
+  const dy = rect.y + (rect.h - dh) / 2 + (photo.panY || 0) * oy;
   ctx.save();
-  ctx.font = `${fontPx}px Anton, 'Arial Narrow', sans-serif`;
-  try { ctx.letterSpacing = `${Math.round(fontPx * 0.04)}px`; } catch { /* older canvas */ }
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const maxWidth = W * 0.9;
-  const lines = wrapCaption(ctx, text, maxWidth);
-  const lineH = fontPx * 1.04;
-  const blockH = lines.length * lineH;
-  const frame = W * FRAME_FRAC;
-  const cy = caption.placement === 'top'
-    ? frame + blockH / 2 + fontPx * 0.25
-    : H - frame - blockH / 2 - fontPx * 0.25;
-  ctx.translate(W / 2, cy);
-  ctx.rotate((caption.tilt * Math.PI) / 180);
-  if (caption.bar) {
-    const barH = blockH + fontPx * 0.5;
-    ctx.fillStyle = 'rgba(8,4,18,0.72)';
-    ctx.fillRect(-W / 2, -barH / 2, W, barH);
-  }
-  ctx.fillStyle = caption.color || '#ffffff';
-  ctx.shadowColor = 'rgba(0,0,0,0.55)';
-  ctx.shadowBlur = Math.round(fontPx * 0.08);
-  ctx.shadowOffsetY = Math.round(fontPx * 0.03);
-  lines.forEach((line, i) => {
-    ctx.fillText(line, 0, (i - (lines.length - 1) / 2) * lineH);
-  });
+  ctx.beginPath();
+  ctx.rect(rect.x, rect.y, rect.w, rect.h);
+  ctx.clip();
+  ctx.filter = grade.filter;
+  ctx.drawImage(img, dx, dy, dw, dh);
   ctx.restore();
 }
 
-// Draw the whole poster. state: { layout, grade, caption, effects, panels }.
-export function drawPoster(ctx, W, H, state) {
-  ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#0d0916';
-  ctx.fillRect(0, 0, W, H);
-  const rects = layoutRects(state.layout, W, H);
-  const grade = GRADES[state.grade] ?? GRADES.none;
-  state.panels.forEach((panel, i) => {
-    const rect = rects[i];
-    if (!rect) return;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(rect.x, rect.y, rect.w, rect.h);
-    ctx.clip();
-    ctx.filter = grade.photoFilter;
-    const drawn = drawPhoto(ctx, panel.img, rect, panel.panX, panel.panY, panel.zoom);
-    ctx.filter = 'none';
-    if (!drawn) emptyPanel(ctx, rect, 'ADD PHOTO');
-    ctx.restore();
-    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-    ctx.lineWidth = Math.max(2, Math.round(W * 0.004));
-    ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+function drawWash(ctx, w, h, grade) {
+  if (!grade.wash.length) return;
+  const grad = ctx.createLinearGradient(0, 0, w * 0.3, h);
+  grade.wash.forEach(([color, alpha], i) => {
+    grad.addColorStop(i / Math.max(1, grade.wash.length - 1), hexA(color, alpha));
   });
-  applyGrade(ctx, W, H, state.grade);
-  drawCaption(ctx, W, H, state.caption);
-  applyEffects(ctx, W, H, state.effects);
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
 }
 
-// Render the poster at export size and return the canvas.
-export function exportPoster(w, h, state) {
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  drawPoster(canvas.getContext('2d'), w, h, state);
-  return canvas;
+function hexA(hex, alpha) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
+function drawGrain(ctx, w, h) {
+  const rnd = mulberry32(1337);
+  const n = Math.round((w * h) / 1100);
+  ctx.save();
+  for (let i = 0; i < n; i++) {
+    const v = rnd();
+    ctx.fillStyle = v > 0.5 ? `rgba(255,255,255,${0.03 + rnd() * 0.09})` : `rgba(0,0,0,${0.03 + rnd() * 0.09})`;
+    ctx.fillRect(rnd() * w, rnd() * h, 1 + rnd() * 1.5, 1 + rnd() * 1.5);
+  }
+  ctx.restore();
+}
+
+function drawHalftone(ctx, w, h) {
+  const step = Math.max(10, Math.round(w / 130));
+  const r = Math.max(1.2, step * 0.16);
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.055)';
+  for (let y = step / 2; y < h; y += step) {
+    const off = (Math.round(y / step) % 2) * (step / 2);
+    for (let x = step / 2 + off; x < w; x += step) {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawVignette(ctx, w, h) {
+  const grad = ctx.createRadialGradient(
+    w / 2, h / 2, Math.min(w, h) * 0.42,
+    w / 2, h / 2, Math.max(w, h) * 0.75,
+  );
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.34)');
+  ctx.save();
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+}
+
+function drawCaption(ctx, w, h, caption) {
+  const text = (caption.text || '').trim().toUpperCase();
+  if (!text) return;
+  const size = Math.round(w * (caption.size || 0.09));
+  const cx = w / 2;
+  const cy = caption.place === 'top' ? h * 0.1 + size * 0.5 : h * 0.9 - size * 0.5;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(((caption.tilt || 0) * Math.PI) / 180);
+  ctx.font = `${size}px Anton, 'Arial Narrow', sans-serif`;
+  try { ctx.letterSpacing = `${Math.round(size * 0.06)}px`; } catch (_) { /* older canvas */ }
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const tw = ctx.measureText(text).width;
+  const pad = size * 0.45;
+  if (caption.bar) {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    const bw = tw + pad * 2;
+    const bh = size * 1.5;
+    ctx.fillRect(-bw / 2, -bh / 2, bw, bh);
+  }
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = size * 0.12;
+  ctx.shadowOffsetY = size * 0.04;
+  ctx.fillStyle = caption.color || '#ffffff';
+  ctx.fillText(text, 0, size * 0.04);
+  ctx.restore();
+}
+
+// Draw the whole poster onto ctx at w x h. Photos are { img, w, h, panX, panY, zoom }.
+export function drawPoster(ctx, state, w, h) {
+  const grade = GRADES[state.grade] || GRADES.sunset;
+  const rects = layoutRects(state.layout, w, h);
+  ctx.save();
+  ctx.fillStyle = '#0b0b10';
+  ctx.fillRect(0, 0, w, h);
+  rects.forEach((rect, i) => {
+    const panel = state.panels[i];
+    if (panel && panel.photo) drawPhoto(ctx, { ...panel.photo, panX: panel.panX, panY: panel.panY, zoom: panel.zoom }, rect, grade);
+  });
+  drawWash(ctx, w, h, grade);
+  if (state.effects?.grain) drawGrain(ctx, w, h);
+  if (state.effects?.halftone) drawHalftone(ctx, w, h);
+  if (state.effects?.vignette) drawVignette(ctx, w, h);
+  drawCaption(ctx, w, h, state.caption);
+  ctx.restore();
+  return rects;
 }

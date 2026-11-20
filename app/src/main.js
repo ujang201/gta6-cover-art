@@ -1,236 +1,266 @@
-// Neon Bay — editor wiring. Loads photos, lets the user pick layouts,
-// select and drag panels, tune the caption, grade and effects, and export
-// PNGs. The preview canvas redraws on every change. All original code.
-
-import { LAYOUTS, GRADES, SAMPLES, CAPTIONS, EXPORT_SIZES, defaultState } from './presets.js';
-import { drawPoster, layoutRects, exportPoster } from './poster.js';
+// Neon Bay — editor. Wires the controls to the poster engine, loads photos,
+// handles drag-to-pan per panel, and exports PNGs in the three post sizes.
+// Everything runs offline: photos are read on this machine, never uploaded.
+import { SIZES, LAYOUTS, GRADES, CAPTION_COLORS, drawPoster, layoutRects, panelCount } from './poster.js';
+import { SAMPLES, defaultState, defaultPanels } from './presets.js';
 
 const $ = (id) => document.getElementById(id);
 const state = defaultState();
-const canvas = $('poster');
-const ctx = canvas.getContext('2d');
-let images = new Map(); // src -> HTMLImageElement
+const photos = new Map(); // id -> { img, w, h, label }
+let selectedPanel = 0;
+let lastRects = [];
+let userPhotoCount = 0;
+
+window.__neonBay = { state, photos, exportSize };
+
+async function loadFont() {
+  try {
+    const face = new FontFace('Anton', "url('fonts/Anton-Regular.ttf')");
+    await face.load();
+    document.fonts.add(face);
+  } catch (_) { /* canvas falls back to a narrow sans */ }
+}
 
 function loadImage(src) {
-  if (images.has(src)) return images.get(src);
-  const img = new Image();
-  img.src = src;
-  images.set(src, img);
-  return img;
-}
-
-function fitCanvas() {
-  const box = canvas.parentElement.getBoundingClientRect();
-  const w = Math.min(box.width, 720);
-  canvas.style.width = w + 'px';
-  canvas.style.height = (w * 0.66) + 'px';
-  canvas.width = 960;
-  canvas.height = 640;
-  redraw();
-}
-
-function redraw() {
-  drawPoster(ctx, canvas.width, canvas.height, state);
-  updatePanelInfo();
-}
-
-function updatePanelInfo() {
-  const panel = state.panels[state.selected];
-  $('panel-label').textContent = `Panel ${state.selected + 1} of ${state.panels.length}`;
-  $('zoom').value = panel ? panel.zoom : 1;
-  $('zoom-val').textContent = panel ? `${panel.zoom.toFixed(2)}×` : '—';
-}
-
-function assignPhoto(img, src, index) {
-  const panel = state.panels[index];
-  if (!panel) return;
-  panel.img = img;
-  panel.src = src;
-  panel.panX = 0;
-  panel.panY = 0;
-  panel.zoom = 1;
-  redraw();
-}
-
-function loadSample(id) {
-  const sample = SAMPLES.find((s) => s.id === id);
-  if (!sample) return;
-  const img = loadImage(sample.src);
-  const apply = () => assignPhoto(img, sample.src, state.selected);
-  if (img.complete && img.naturalWidth) apply();
-  else img.onload = apply;
-}
-
-function loadUserFiles(files) {
-  [...files].slice(0, state.panels.length).forEach((file, i) => {
-    if (!file.type.startsWith('image/')) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new Image();
-      img.onload = () => assignPhoto(img, reader.result, i);
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve({ img, w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = reject;
+    img.src = src;
   });
 }
 
-function fillAll() {
-  const srcPanel = state.panels[state.selected];
-  if (!srcPanel || !srcPanel.img) return;
-  state.panels.forEach((p) => {
-    p.img = srcPanel.img;
-    p.src = srcPanel.src;
-    p.panX = 0;
-    p.panY = 0;
-    p.zoom = 1;
-  });
-  redraw();
+async function loadSamples() {
+  for (const s of SAMPLES) {
+    try {
+      const p = await loadImage(s.src);
+      photos.set(s.id, { ...p, label: s.label });
+    } catch (_) { /* a missing sample just leaves its panels blank */ }
+  }
 }
 
-function setLayout(id) {
-  if (!LAYOUTS[id]) return;
-  const old = state.panels;
-  state.layout = id;
-  state.panels = LAYOUTS[id].panels.map((_, i) => old[i] ?? { img: null, src: '', panX: 0, panY: 0, zoom: 1 });
-  state.selected = 0;
-  document.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === id));
-  redraw();
+function panelPhoto(panel) {
+  const p = photos.get(panel.photoId);
+  return p ? { ...p, panX: panel.panX, panY: panel.panY, zoom: panel.zoom } : null;
 }
 
-function setGrade(id) {
-  if (!GRADES[id]) return;
-  state.grade = id;
-  document.querySelectorAll('[data-grade]').forEach((b) => b.classList.toggle('active', b.dataset.grade === id));
-  redraw();
-}
-
-function canvasPos(e) {
-  const r = canvas.getBoundingClientRect();
+function renderState() {
   return {
-    x: ((e.clientX - r.left) / r.width) * canvas.width,
-    y: ((e.clientY - r.top) / r.height) * canvas.height,
+    ...state,
+    panels: state.panels.map((panel) => ({ ...panel, photo: panelPhoto(panel) })),
   };
 }
 
-let drag = null;
-canvas.addEventListener('pointerdown', (e) => {
-  const p = canvasPos(e);
-  const rects = layoutRects(state.layout, canvas.width, canvas.height);
-  const hit = rects.findIndex((r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h);
-  if (hit < 0) return;
-  state.selected = hit;
-  canvas.setPointerCapture(e.pointerId);
-  drag = { x: p.x, y: p.y, panX: state.panels[hit].panX, panY: state.panels[hit].panY };
-  redraw();
-});
-canvas.addEventListener('pointermove', (e) => {
-  if (!drag) return;
-  const p = canvasPos(e);
-  const panel = state.panels[state.selected];
-  const scale = canvas.width / canvas.getBoundingClientRect().width;
-  panel.panX = drag.panX + (p.x - drag.x);
-  panel.panY = drag.panY + (p.y - drag.y);
-  void scale;
-  redraw();
-});
-canvas.addEventListener('pointerup', () => { drag = null; });
-
-function download(canvasEl, name) {
-  canvasEl.toBlob((blob) => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
-  }, 'image/png');
+function drawPreview() {
+  const canvas = $('preview');
+  const size = SIZES[state.size];
+  const pw = 960;
+  const ph = Math.round((960 * size.h) / size.w);
+  if (canvas.width !== pw || canvas.height !== ph) { canvas.width = pw; canvas.height = ph; }
+  const ctx = canvas.getContext('2d');
+  lastRects = drawPoster(ctx, renderState(), pw, ph);
+  $('sizeLabel').textContent = `${size.label} — preview ${pw}×${ph}`;
 }
 
-async function exportSize(size) {
-  await document.fonts.load('16px Anton');
-  await document.fonts.ready;
-  const out = exportPoster(size.w, size.h, state);
-  download(out, `neon-bay-${size.id}-${size.w}x${size.h}.png`);
-  return out;
+function drawCoverView() {
+  const canvas = $('coverCanvas');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  canvas.width = Math.round(vw * dpr);
+  canvas.height = Math.round(vh * dpr);
+  canvas.style.width = `${vw}px`;
+  canvas.style.height = `${vh}px`;
+  const ctx = canvas.getContext('2d');
+  drawPoster(ctx, renderState(), canvas.width, canvas.height);
 }
 
-function exportAll() {
-  EXPORT_SIZES.forEach((s, i) => setTimeout(() => exportSize(s), i * 400));
+function refresh() {
+  if (document.body.dataset.mode === 'cover') drawCoverView();
+  else drawPreview();
+  syncControls();
 }
 
-// --- controls ---
-$('photos').addEventListener('change', (e) => loadUserFiles(e.target.files));
-document.querySelectorAll('[data-sample]').forEach((b) => b.addEventListener('click', () => loadSample(b.dataset.sample)));
-document.querySelectorAll('[data-layout]').forEach((b) => b.addEventListener('click', () => setLayout(b.dataset.layout)));
-document.querySelectorAll('[data-grade]').forEach((b) => b.addEventListener('click', () => setGrade(b.dataset.grade)));
-$('fill-all').addEventListener('click', fillAll);
-$('zoom').addEventListener('input', (e) => {
-  const panel = state.panels[state.selected];
-  if (panel) panel.zoom = parseFloat(e.target.value);
-  redraw();
-});
-$('caption').addEventListener('input', (e) => { state.caption.text = e.target.value; redraw(); });
-$('cap-size').addEventListener('input', (e) => {
-  state.caption.size = parseFloat(e.target.value);
-  $('cap-size-val').textContent = Math.round(state.caption.size * 100) + '%';
-  redraw();
-});
-$('cap-color').addEventListener('input', (e) => { state.caption.color = e.target.value; redraw(); });
-$('cap-place').addEventListener('change', (e) => { state.caption.placement = e.target.value; redraw(); });
-$('cap-tilt').addEventListener('input', (e) => {
-  state.caption.tilt = parseFloat(e.target.value);
-  $('cap-tilt-val').textContent = state.caption.tilt + '°';
-  redraw();
-});
-$('cap-bar').addEventListener('change', (e) => { state.caption.bar = e.target.checked; redraw(); });
-['grain', 'halftone', 'vignette'].forEach((name) => {
-  $(`fx-${name}`).addEventListener('change', (e) => { state.effects[name] = e.target.checked; redraw(); });
-});
-document.querySelectorAll('[data-export]').forEach((b) => b.addEventListener('click', () => {
-  const size = EXPORT_SIZES.find((s) => s.id === b.dataset.export);
-  if (size) exportSize(size);
-}));
-$('export-all').addEventListener('click', exportAll);
-window.addEventListener('resize', fitCanvas);
+function syncControls() {
+  document.querySelectorAll('[data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === state.layout));
+  document.querySelectorAll('[data-grade]').forEach((b) => b.classList.toggle('active', b.dataset.grade === state.grade));
+  document.querySelectorAll('[data-size]').forEach((b) => b.classList.toggle('active', b.dataset.size === state.size));
+  document.querySelectorAll('[data-effect]').forEach((b) => b.classList.toggle('active', !!state.effects[b.dataset.effect]));
+  document.querySelectorAll('[data-color]').forEach((b) => b.classList.toggle('active', b.dataset.color === state.caption.color));
+  document.querySelectorAll('[data-place]').forEach((b) => b.classList.toggle('active', b.dataset.place === state.caption.place));
+  $('captionText').value = state.caption.text;
+  $('captionSize').value = Math.round(state.caption.size * 100);
+  $('captionSizeVal').textContent = `${Math.round(state.caption.size * 100)}%`;
+  $('captionTilt').value = state.caption.tilt;
+  $('captionTiltVal').textContent = `${state.caption.tilt}°`;
+  $('barToggle').classList.toggle('active', !!state.caption.bar);
+  $('zoomSlider').value = Math.round(((state.panels[selectedPanel]?.zoom || 1) - 1) * 100);
+  $('zoomVal').textContent = `${Math.round((state.panels[selectedPanel]?.zoom || 1) * 100)}%`;
+  $('panelLabel').textContent = `Panel ${selectedPanel + 1} of ${state.panels.length}`;
+}
 
-// Caption presets.
-const capRow = $('caption-presets');
-CAPTIONS.forEach((c) => {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.textContent = c;
-  b.addEventListener('click', () => { state.caption.text = c; $('caption').value = c; redraw(); });
-  capRow.appendChild(b);
-});
+function setLayout(layout) {
+  const sampleIds = [...photos.keys()];
+  const keep = state.panels.map((p) => p.photoId);
+  state.layout = layout;
+  state.panels = defaultPanels(layout, keep.length ? keep : sampleIds);
+  selectedPanel = 0;
+  refresh();
+}
 
-// Query-string boot for screenshots:
-// ?shot=editor|cover&photo=boulevard|pier&caption=..&layout=..&grade=..&size=square|portrait|wide
-async function boot() {
-  const q = new URLSearchParams(location.search);
-  const shot = q.get('shot');
-  if (shot === 'cover') document.body.classList.add('cover-only');
-  const layout = q.get('layout');
-  if (layout && LAYOUTS[layout]) setLayout(layout);
-  const grade = q.get('grade');
-  if (grade && GRADES[grade]) setGrade(grade);
-  const caption = q.get('caption');
-  if (caption) { state.caption.text = caption; $('caption').value = caption; }
-  const photo = q.get('photo');
-  if (photo) {
-    const sample = SAMPLES.find((s) => s.id === photo);
-    if (sample) {
-      const img = loadImage(sample.src);
-      await new Promise((res) => { if (img.complete && img.naturalWidth) res(); else { img.onload = res; img.onerror = res; } });
-      state.panels.forEach((_, i) => assignPhoto(img, sample.src, i));
-    }
+function setGrade(grade) { state.grade = grade; refresh(); }
+function setSize(sizeId) { state.size = sizeId; refresh(); }
+
+function fillAll(photoId) {
+  state.panels.forEach((p) => { p.photoId = photoId; p.panX = 0; p.panY = 0; });
+  refresh();
+}
+
+function buildPhotoButtons() {
+  const wrap = $('photoList');
+  wrap.innerHTML = '';
+  for (const [id, p] of photos) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'thumb';
+    b.textContent = p.label;
+    b.title = `Use ${p.label} for the selected panel`;
+    b.addEventListener('click', () => {
+      state.panels[selectedPanel].photoId = id;
+      state.panels[selectedPanel].panX = 0;
+      state.panels[selectedPanel].panY = 0;
+      refresh();
+    });
+    wrap.appendChild(b);
   }
-  await document.fonts.load('16px Anton');
-  await document.fonts.ready;
-  fitCanvas();
-  redraw();
-  if (shot === 'cover') document.body.classList.add('ready');
+  const fill = document.createElement('button');
+  fill.type = 'button';
+  fill.className = 'thumb fill';
+  fill.textContent = 'Fill all panels';
+  fill.title = 'Fill every panel with the selected panel’s photo';
+  fill.addEventListener('click', () => fillAll(state.panels[selectedPanel].photoId));
+  wrap.appendChild(fill);
 }
 
-// Test / screenshot hook.
-window.__neonBay = { state, exportPoster, exportSize, drawPoster, loadSample, setLayout, setGrade };
+async function addUserPhotos(files) {
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) continue;
+    const url = URL.createObjectURL(file);
+    try {
+      const p = await loadImage(url);
+      const id = `user-${++userPhotoCount}`;
+      photos.set(id, { ...p, label: file.name.replace(/\.[^.]+$/, '').slice(0, 18) || 'Photo' });
+      state.panels[selectedPanel].photoId = id;
+    } catch (_) { URL.revokeObjectURL(url); }
+  }
+  buildPhotoButtons();
+  refresh();
+}
 
-boot();
+function exportSize(sizeId) {
+  return new Promise((resolve) => {
+    const size = SIZES[sizeId];
+    const canvas = document.createElement('canvas');
+    canvas.width = size.w;
+    canvas.height = size.h;
+    drawPoster(canvas.getContext('2d'), renderState(), size.w, size.h);
+    canvas.toBlob((blob) => {
+      if (!blob) { resolve(null); return; }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `neon-bay-${size.w}x${size.h}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      resolve(blob);
+    }, 'image/png');
+  });
+}
+
+async function exportAll() {
+  for (const id of Object.keys(SIZES)) await exportSize(id);
+}
+
+function bindPointer() {
+  const canvas = $('preview');
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+  function point(ev) {
+    const r = canvas.getBoundingClientRect();
+    return { x: ((ev.clientX - r.left) / r.width) * canvas.width, y: ((ev.clientY - r.top) / r.height) * canvas.height };
+  }
+  canvas.addEventListener('pointerdown', (ev) => {
+    const p = point(ev);
+    const i = lastRects.findIndex((r) => p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h);
+    if (i >= 0) { selectedPanel = i; dragging = true; lastX = p.x; lastY = p.y; canvas.setPointerCapture(ev.pointerId); syncControls(); }
+  });
+  canvas.addEventListener('pointermove', (ev) => {
+    if (!dragging) return;
+    const p = point(ev);
+    const panel = state.panels[selectedPanel];
+    const rect = lastRects[selectedPanel];
+    if (!panel || !rect) return;
+    panel.panX = Math.max(-1, Math.min(1, panel.panX + ((p.x - lastX) / rect.w) * 2));
+    panel.panY = Math.max(-1, Math.min(1, panel.panY + ((p.y - lastY) / rect.h) * 2));
+    lastX = p.x; lastY = p.y;
+    drawPreview();
+  });
+  canvas.addEventListener('pointerup', () => { dragging = false; });
+  canvas.addEventListener('pointercancel', () => { dragging = false; });
+}
+
+function bindControls() {
+  document.querySelectorAll('[data-layout]').forEach((b) => b.addEventListener('click', () => setLayout(b.dataset.layout)));
+  document.querySelectorAll('[data-grade]').forEach((b) => b.addEventListener('click', () => setGrade(b.dataset.grade)));
+  document.querySelectorAll('[data-size]').forEach((b) => b.addEventListener('click', () => setSize(b.dataset.size)));
+  document.querySelectorAll('[data-effect]').forEach((b) => b.addEventListener('click', () => {
+    state.effects[b.dataset.effect] = !state.effects[b.dataset.effect];
+    refresh();
+  }));
+  document.querySelectorAll('[data-color]').forEach((b) => b.addEventListener('click', () => { state.caption.color = b.dataset.color; refresh(); }));
+  document.querySelectorAll('[data-place]').forEach((b) => b.addEventListener('click', () => { state.caption.place = b.dataset.place; refresh(); }));
+  $('captionText').addEventListener('input', (ev) => { state.caption.text = ev.target.value; refresh(); });
+  $('captionSize').addEventListener('input', (ev) => { state.caption.size = Number(ev.target.value) / 100; refresh(); });
+  $('captionTilt').addEventListener('input', (ev) => { state.caption.tilt = Number(ev.target.value); refresh(); });
+  $('barToggle').addEventListener('click', () => { state.caption.bar = !state.caption.bar; refresh(); });
+  $('zoomSlider').addEventListener('input', (ev) => {
+    const panel = state.panels[selectedPanel];
+    if (panel) { panel.zoom = 1 + Number(ev.target.value) / 100; drawPreview(); syncControls(); }
+  });
+  $('fileInput').addEventListener('change', (ev) => addUserPhotos(ev.target.files));
+  $('exportAll').addEventListener('click', exportAll);
+  document.querySelectorAll('[data-export]').forEach((b) => b.addEventListener('click', () => exportSize(b.dataset.export)));
+  window.addEventListener('resize', () => { if (document.body.dataset.mode === 'cover') drawCoverView(); });
+}
+
+function applyQuery() {
+  const q = new URLSearchParams(window.location.search);
+  const shot = q.get('shot');
+  if (q.get('layout') && LAYOUTS[q.get('layout')]) setLayout(q.get('layout'));
+  if (q.get('grade') && GRADES[q.get('grade')]) state.grade = q.get('grade');
+  if (q.get('size') && SIZES[q.get('size')]) state.size = q.get('size');
+  if (q.get('caption') !== null) state.caption.text = q.get('caption');
+  if (q.get('photo')) {
+    const id = q.get('photo');
+    if (photos.has(id)) state.panels.forEach((p) => { p.photoId = id; });
+  }
+  if (shot === 'cover') {
+    document.body.dataset.mode = 'cover';
+    document.body.classList.add('cover-mode');
+  }
+}
+
+async function init() {
+  await loadFont();
+  await loadSamples();
+  buildPhotoButtons();
+  bindControls();
+  bindPointer();
+  applyQuery();
+  refresh();
+  document.body.dataset.ready = 'true';
+}
+
+init();
